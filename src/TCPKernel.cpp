@@ -39,7 +39,6 @@ int TcpKernel::Open( int port)
     initRand();
 
     m_sql = new CMysql;
-    // 数据库 使用127.0.0.1 地址  用户名root 密码colin123 数据库 wechat 没有的话需要创建 不然报错
     if(  !m_sql->ConnectMysql( _DEF_DB_IP , _DEF_DB_USER, _DEF_DB_PWD, _DEF_DB_NAME )  )
     {
         printf("Conncet Mysql Failed...\n");

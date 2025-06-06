@@ -35,13 +35,11 @@ using namespace std;
 #define TRUE                true
 #define FALSE               false
 
-
-
 /*-------------数据库信息-----------------*/
-#define _DEF_DB_NAME    "NetDisk"
-#define _DEF_DB_IP      "localhost"
+#define _DEF_DB_NAME    "netdisk"
+#define _DEF_DB_IP      "172.29.112.1"
 #define _DEF_DB_USER    "root"
-#define _DEF_DB_PWD     "STLstl666!"
+#define _DEF_DB_PWD     "STLstl666"
 /*--------------------------------------*/
 #define _MAX_PATH           (260)
 #define _DEF_BUFFER         (4096)
@@ -85,7 +83,7 @@ using namespace std;
 #define login_success		(2)
 
 
-#define _DEF_PATH "/home/daligh/project/NetDisk_server/UserData/"
+#define _DEF_PATH "/root/project/Network_disk_server/UserData/"
 
 typedef int PackType;
 

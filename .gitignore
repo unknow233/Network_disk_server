@@ -1,0 +1,16 @@
+src/dep/block_epoll_net.d
+src/dep/clogic.d
+src/dep/err_str.d
+src/dep/main.d
+src/dep/Mysql.d
+src/dep/TCPKernel.d
+src/dep/Thread_pool.d
+src/obj/block_epoll_net.o
+src/obj/clogic.o
+src/obj/err_str.o
+src/obj/main.o
+src/obj/Mysql.o
+src/obj/TCPKernel.o
+src/obj/Thread_pool.o
+transferServer/test-1
+src/server
