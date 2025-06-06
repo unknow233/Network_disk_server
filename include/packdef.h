@@ -42,7 +42,7 @@ using namespace std;
 #define _DEF_DB_PWD     "STLstl666"
 /*--------------------------------------*/
 #define _MAX_PATH           (260)
-#define _DEF_BUFFER         (4096)
+#define _DEF_BUFFER         (40960)
 #define _DEF_CONTENT_SIZE	(1024)
 #define _MAX_SIZE           (40)
 
@@ -68,7 +68,7 @@ using namespace std;
 //文件内容回复
 #define _DEF_PACK_FILE_CONTENT_RS       (_DEF_PACK_BASE + 7 )
 #define _MAX_PATH_SIZE                  (260)
-#define _DEF_BUFFER                     (4096)
+#define _DEF_BUFFER                     (40960)
 #define _DEF_CONTENT_SIZE               (1024)
 #define _MAX_SIZE                       (40)
 
@@ -220,7 +220,7 @@ struct STRU_FILE_CONTENT_RQ
     int timestamp;//时间戳用于区分不同任务
     int userid;//用户id
     int fileid;//文件id
-    char content[_DEF_BUFFER];//文件内容 也叫文件块   _DEF_BUFFER  4096
+    char content[_DEF_BUFFER];//文件内容 也叫文件块   _DEF_BUFFER  40960
     int len;//文件内容长度
 };
 

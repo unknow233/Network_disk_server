@@ -2,7 +2,8 @@
 #define CLOGIC_H
 
 #include"TCPKernel.h"
-
+#include <fstream>
+#include <iostream>
 class CLogic
 {
 public:
@@ -11,6 +12,8 @@ public:
         m_pKernel = pkernel;
         m_sql = pkernel->m_sql;
         m_tcp = pkernel->m_tcp;
+        sqlLog.open("sql.log",std::ios::app);
+        logicLog.open("logic.log",std::ios::app);
     }
 public:
     //设置协议映射
@@ -70,7 +73,9 @@ private:
     TcpKernel* m_pKernel;
     CMysql * m_sql;
     Block_Epoll_Net * m_tcp;
-    MyMap<int64_t, FileInfo*> m_UidTimeToFileinfo;    
+    MyMap<int64_t, FileInfo*> m_UidTimeToFileinfo;
+    std::ofstream sqlLog;
+    std::ofstream logicLog;   
 };
 
 #endif // CLOGIC_H

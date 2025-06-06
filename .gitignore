@@ -14,3 +14,4 @@ src/obj/TCPKernel.o
 src/obj/Thread_pool.o
 transferServer/test-1
 src/server
+UserData/*

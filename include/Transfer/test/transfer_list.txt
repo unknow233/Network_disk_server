@@ -1,0 +1,6 @@
+FILE:/path/to/file.txt
+FILE:<fd:-1>
+FILE:/path/to/file.txt
+FILE:<fd:-1>
+FILE:/path/to/file.txt
+FILE:/root/project/Network_disk_server/src/Transfer/test/another_file.txt

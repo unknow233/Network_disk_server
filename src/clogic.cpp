@@ -1,6 +1,11 @@
 #include "clogic.h"
 #include "dirent.h"
-
+#include "FileTransfer.h"
+#include <bits/shared_ptr.h>
+#include "Transfer/FileTransferTask.h"
+#include "Transfer/FileWriter.h"
+#include "Transfer/NoOpWriter.h"
+FileTransferClient FileTran("127.0.0.1",9000);
 void CLogic::setNetPackMap()
 {
     NetPackMap(_DEF_PACK_REGISTER_RQ) = &CLogic::RegisterRq;
@@ -24,13 +29,10 @@ void CLogic::setNetPackMap()
    // NetPackMap(_DEF_PACK_DOWNLOAD_FOLDER_RQ)=&CLogic::DownloadFolderRq;
 }
 
-#define _DEF_COUT_FUNC_ cout << "clientfd:" << clientfd << __func__ << endl;
-
 // 注册
 void CLogic::RegisterRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    // cout << "clientfd:"<< clientfd << __func__ << endl;
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     // 拆包
     STRU_REGISTER_RQ registRq = *(STRU_REGISTER_RQ *)szbuf;
     char tel[12];
@@ -41,6 +43,7 @@ void CLogic::RegisterRq(sock_fd clientfd, char *szbuf, int nlen)
     strcpy(name, registRq.name);
     // 数据库查手机号是否已经存在
     char sqlStatement[100];
+    
     sprintf(sqlStatement, "select u_id from t_user where u_tel = '%s';", tel);
     list<string> result_list;
     if (m_sql->SelectMysql(sqlStatement, 1, result_list) == false)
@@ -93,7 +96,7 @@ void CLogic::RegisterRq(sock_fd clientfd, char *szbuf, int nlen)
 void CLogic::LoginRq(sock_fd clientfd, char *szbuf, int nlen)
 {
     //    cout << "clientfd:"<< clientfd << __func__ << endl;
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     // 拆包
     STRU_LOGIN_RQ LoginRq = *(STRU_LOGIN_RQ *)szbuf;
     char password[33];
@@ -146,7 +149,7 @@ void CLogic::LoginRq(sock_fd clientfd, char *szbuf, int nlen)
 
 void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-     _DEF_COUT_FUNC_;
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_UPLOAD_FILE_RQ *rq=(STRU_UPLOAD_FILE_RQ*)szbuf;//static_cast
     //TODO:查看是否秒传
@@ -171,11 +174,12 @@ void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
             //cout<<sqlbuf<<endl;
             res=m_sql->UpdataMysql(sqlbuf);
             if(!res){
-                 printf("update fail:%s\n",sqlbuf);
+                sqlLog<<"update fail"<<sqlbuf<<endl;
             }
             //写回复包  客户端收到之后  就更新列表
             STRU_QUICK_UPLOAD_RS rs;
             rs.result=1;
+            //
             rs.timestamp=rq->timestamp;
             rs.userid=rq->userid;
             //发送
@@ -183,7 +187,6 @@ void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
             //返回
             //cout<<"返回了么"<<endl;
             return;
-            //cout<<"没返回"<<endl;
         }
     }
     cout<<"没返回"<<endl;
@@ -216,14 +219,14 @@ void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
         sprintf(sqlbuf,"insert into t_file ( f_size , f_path , f_MD5 , f_count , f_state , f_type ) values ( %d , '%s' , '%s' ,0 , 0 , 'file');",rq->size,strpath,rq->md5);
         bool res=m_sql->UpdataMysql(sqlbuf);
         if(!res){
-            printf("update fail:%s\n",sqlbuf);
+            sqlLog<<"update fail"<<sqlbuf<<endl;
         }
         //查文件id
         sprintf(sqlbuf,"select f_id from t_file where f_path='%s' and f_md5='%s';",strpath,rq->md5);
         list<string>lstRes;
         res=m_sql->SelectMysql(sqlbuf,1,lstRes);
         if(!res){
-            printf("Select fail:%s\n",sqlbuf);
+            sqlLog<<"select fail"<<sqlbuf<<endl;
         }
         if(lstRes.size()>0){
             info->fid=stoi(lstRes.front());
@@ -234,7 +237,7 @@ void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
         //std::cout<<sqlbuf<<endl;
         res=m_sql->UpdataMysql(sqlbuf);
         if(!res){
-            printf("update fail:%s\n",sqlbuf);
+            sqlLog<<"update fail"<<sqlbuf<<endl;
         }
     //写回复包
     STRU_UPLOAD_FILE_RS rs;
@@ -245,10 +248,9 @@ void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
 
     SendData(clientfd,(char*)&rs,sizeof(rs));
 }
-
 void CLogic::FileContentRq(sock_fd clientfd ,char* szbuf,int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_FILE_CONTENT_RQ*rq=(STRU_FILE_CONTENT_RQ*)szbuf;
     rq->content;
@@ -282,20 +284,29 @@ void CLogic::FileContentRq(sock_fd clientfd ,char* szbuf,int nlen)
         info->pos+=len;
             //看是否到达末尾
             if(info->pos>=info->size){
-                //
-                //是 关闭文件
+                //更新数据库,把文件信息的状态更新为1,表示已完成
+                char sqlbuf[1000];
+                sprintf(sqlbuf,"update t_file set f_state=1 where f_id=%d",rq->fileid);
+                bool res=m_sql->UpdataMysql(sqlbuf);
+                // 创建转移任务
+                //  1. 选择写入策略：可以替换为 NoOpWriter、FileWriter、MQWriter……
+                auto writer = std::make_shared<FileWriter>("transfer_list.txt");
+                // 2. 构造任务
+                FileTransferTask task(writer);
+                // 3. 添加待转移项（文件名或描述符）
+                task.add(info->filefd); // 传入文件名
+                // 4. 执行
+                task.execute();
+                
+                if(res==0){
+                    cout<<"updata fail:"<<sqlbuf<<endl;
+                }
                 close(info->filefd);
                 //回收map节点
                 m_UidTimeToFileinfo.erase(user_time);
                 delete info;
                 info=nullptr;
-                //更新数据库,把文件信息的状态更新为1,表示已完成
-                char sqlbuf[1000];
-                sprintf(sqlbuf,"update t_file set f_state=1 where f_id=%d",rq->fileid);
-                bool res=m_sql->UpdataMysql(sqlbuf);
-                if(res==0){
-                    cout<<"updata fail:"<<sqlbuf<<endl;
-                }
+                
             }
     }
      //返回结果
@@ -309,7 +320,7 @@ void CLogic::FileContentRq(sock_fd clientfd ,char* szbuf,int nlen)
 
 void CLogic::GetFileInfoRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_GET_FILE_INFO_RQ *rq=(STRU_GET_FILE_INFO_RQ*)szbuf;
     //以获取以下2个变量
@@ -367,7 +378,7 @@ void CLogic::GetFileInfoRq(sock_fd clientfd, char *szbuf, int nlen)
 
 void CLogic::DownloadFileRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_DOWNLOAD_FILE_RQ*rq=(STRU_DOWNLOAD_FILE_RQ*)szbuf;
     // rq->dir;
@@ -402,11 +413,20 @@ void CLogic::DownloadFileRq(sock_fd clientfd, char *szbuf, int nlen)
     info->name=strName;
     info->size=size;
     info->type="file";
+    
 
     info->filefd=open(info->absolutePath.c_str(),O_RDONLY);
     if(info->filefd<=0){
-        cout<<"file open fail"<<endl;
-        return;
+        cout<<" file open fail first"<<endl;
+        cout<<"尝试从分布式文件系统中获取"<<endl;
+        //TODO:通知转移服务，从分布式文件系统中获取文件
+        
+        if(-1==FileTran.downloadFile(strMD5)){//服务器中文件名和MD5相同
+            cout<<"尝试从分布式文件系统中获取失败"<<endl;
+            return;
+        }else{
+            info->filefd=open(info->absolutePath.c_str(),O_RDONLY);//获取后重新打开
+        }
     }
 
     //求key
@@ -428,7 +448,7 @@ void CLogic::DownloadFileRq(sock_fd clientfd, char *szbuf, int nlen)
 }
 void CLogic::FileHeaderRs(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_FILE_HEADER_RS*rs=( STRU_FILE_HEADER_RS*)szbuf;
     rs->fileid;
@@ -458,7 +478,7 @@ void CLogic::FileHeaderRs(sock_fd clientfd, char *szbuf, int nlen)
     SendData(clientfd,(char*)&rq,sizeof(rq));
 }
 void CLogic::FileContentRs(sock_fd clientfd, char *szbuf, int nlen){
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_FILE_CONTENT_RS*rs=(STRU_FILE_CONTENT_RS*)szbuf;
     rs->fileid;
@@ -513,7 +533,7 @@ void CLogic::FileContentRs(sock_fd clientfd, char *szbuf, int nlen){
     SendData(clientfd,(char*)&rq,sizeof(rq));
 }
 void CLogic::AddFolderRq(sock_fd clientfd ,char* szbuf,int nlen){
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
 
     //拆包
     STRU_ADD_FOLDER_RQ*rq=(STRU_ADD_FOLDER_RQ*)szbuf;
@@ -547,32 +567,32 @@ void CLogic::AddFolderRq(sock_fd clientfd ,char* szbuf,int nlen){
     if(lstRes.size()==0)return;
     int id=stoi(lstRes.front());
     lstRes.pop_front();
-
     //写入用户文件关系-隐藏 触发器引用计数+1
     //u_id,f_id,f_dir,f_name,f_uploadtime ,
     sprintf(sqlbuf,"insert into t_user_file(u_id,f_id,f_dir,f_name,f_uploadtime) values(%d,%d,'%s','%s','%s');"
     ,rq->userid,id,rq->dir,rq->fileName,rq->time);
     res=m_sql->UpdataMysql(sqlbuf);
-    if(!res){
-        cout<<"updata fail: "<<sqlbuf<<endl;
-        return;
-    }
-
-    //创建目录
-    umask(0);
-    mkdir(pathbuf,0777);//多层文件夹的情况
-
-    //写回复
+      //写回复
     STRU_ADD_FOLDER_RS rs;
     rs.result=1;
     rs.timestamp=rq->timestamp;
     rs.userid=rq->userid;
+    if(!res){
+        cout<<"updata fail: "<<sqlbuf<<endl;
+        rs.result=1;
+    }
+  
+    //创建目录，告诉客户端创建失败
+    if(mkdir(pathbuf,0777)==-1){
+        perror("mkdir fail");
+        return;
+    }
     //发送
     SendData(clientfd,(char*)&rs,sizeof(rs));
 }
 void CLogic::ShareFileRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_SHARE_FILE_RQ*rq=(STRU_SHARE_FILE_RQ*)szbuf;
     
@@ -605,13 +625,13 @@ void CLogic::ShareFileRq(sock_fd clientfd, char *szbuf, int nlen)
     }
     //写回复
     STRU_SHARE_FILE_RS rs;
-    rs.result=1;
+    rs.result=link;
     SendData(clientfd,(char*)&rs,sizeof(rs));
 }
 
 void CLogic::MyShareRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_MY_SHARE_RQ * rq=(STRU_MY_SHARE_RQ *)szbuf;
 
@@ -676,7 +696,7 @@ void CLogic::ShareItem(int userid,int fileid,string dir,string time,int link)
 }
 void CLogic::GetShareRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_GET_SHARE_RQ*rq=(STRU_GET_SHARE_RQ*)szbuf;
     cout<<"路径为"<<rq->dir<<endl;
@@ -742,14 +762,14 @@ void CLogic::GetShareByFile(int userid,int fileid,string dir,string name,string 
     bool res=m_sql->UpdataMysql(sqlbuf);
     //std::cout<<sqlbuf<<"下半部"<<endl;
     if(!res){
-        printf("update fail:%s\n",sqlbuf);
+        sqlLog<<sqlbuf<<endl;
     }
 }
 
 
 void CLogic::DownloadFolderRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_DOWNLOAD_FOLDER_RQ*rq=(STRU_DOWNLOAD_FOLDER_RQ*)szbuf;
     //rq->dir;
@@ -776,7 +796,7 @@ void CLogic::DownloadFolderRq(sock_fd clientfd, char *szbuf, int nlen)
 }
 
 void CLogic::DownloadFolder(int userid,int& timestamp,sock_fd clientfd,list<string>&lstRes){
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     int fileid=stoi(lstRes.front());lstRes.pop_front();
     string strName=lstRes.front();lstRes.pop_front();
     string strPath=lstRes.front();lstRes.pop_front();
@@ -817,7 +837,7 @@ void CLogic::DownloadFolder(int userid,int& timestamp,sock_fd clientfd,list<stri
 
 void CLogic::ContinueUploadRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_CONTINUE_UPLOAD_RQ*rq=(STRU_CONTINUE_UPLOAD_RQ*)szbuf;
     int64_t user_time=rq->userid*GetTenBillion()+rq->timestamp;
@@ -874,7 +894,7 @@ void CLogic::ContinueUploadRq(sock_fd clientfd, char *szbuf, int nlen)
 
 void CLogic::ContinueDownloadRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     //拆包
     STRU_CONTINUE_DOWNLOAD_RQ * rq=(STRU_CONTINUE_DOWNLOAD_RQ *)szbuf;
     //看是否存在文件信息
@@ -940,7 +960,7 @@ void CLogic::ContinueDownloadRq(sock_fd clientfd, char *szbuf, int nlen)
 }
 
 void CLogic::DownloadFile(int userid,int &timestamp,sock_fd clientfd,list<string>&lstRes){
-    _DEF_COUT_FUNC_
+    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
     int fileid=stoi(lstRes.front());lstRes.pop_front();
     string strName=lstRes.front();lstRes.pop_front();
     string strPath=lstRes.front();lstRes.pop_front();
