@@ -8,7 +8,7 @@ LIBRARY=-lpthread -lmysqlclient
 
 # 编译选项
 CFLAGS=-I$(INCLUDE_PATH) -c -g -Wall
-CPPFLAGS=-I$(INCLUDE_PATH) -c -pipe -g -std=gnu++11 -Wall -W -fPIC
+CPPFLAGS=-I$(INCLUDE_PATH) -c -pipe -g -std=c++17 -Wall -W -fPIC
 
 # 工具命令
 RM=sudo rm -rf

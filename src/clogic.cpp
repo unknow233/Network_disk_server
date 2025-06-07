@@ -5,6 +5,11 @@
 #include "Transfer/FileTransferTask.h"
 #include "Transfer/FileWriter.h"
 #include "Transfer/NoOpWriter.h"
+#include  <atomic>
+std::atomic<int64_t> s_requestCounter;
+int64_t GetNextRequestId() {
+    return ++s_requestCounter;
+}
 FileTransferClient FileTran("127.0.0.1",9000);
 void CLogic::setNetPackMap()
 {
@@ -149,104 +154,104 @@ void CLogic::LoginRq(sock_fd clientfd, char *szbuf, int nlen)
 
 void CLogic::HandleUpFileRq(sock_fd clientfd, char *szbuf, int nlen)
 {
-    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
-    //拆包
-    STRU_UPLOAD_FILE_RQ *rq=(STRU_UPLOAD_FILE_RQ*)szbuf;//static_cast
-    //TODO:查看是否秒传
+    logicLog << "clientfd:" << clientfd << " userId:" << ((STRU_UPLOAD_FILE_RQ*)szbuf)->userid << " " << __func__ << std::endl;
+
+    // 拆包
+    STRU_UPLOAD_FILE_RQ *rq = reinterpret_cast<STRU_UPLOAD_FILE_RQ*>(szbuf);
+
+    int64_t serverReqId = rq->timestamp;
+
+    // TODO: 查看是否秒传
     {
-        //判断文件是否已经上传
+        // 判断文件是否已经上传
+        char sqlbuf[1000] = "";
+        sprintf(sqlbuf,
+                "SELECT f_id FROM t_file WHERE f_MD5='%s' AND f_state=1;",
+                rq->md5);
 
-        //根据MD5 state=1   查数据库    得到id
-         //（如果state=0，怎么处理？）客户端拒绝，或者挂起这个请求
-        char sqlbuf[1000]="";
-        sprintf(sqlbuf,"select f_id from t_file where f_MD5='%s' and f_state=1;",rq->md5);
-        list<string>lstRes;
-        bool res=m_sql->SelectMysql(sqlbuf,1,lstRes);
-        if(!res){
-            cout<<"select fail: "<<sqlbuf<<endl;
+        std::list<std::string> lstRes;
+        bool res = m_sql->SelectMysql(sqlbuf, 1, lstRes);
+        if (!res) {
+            std::cerr << "select fail: " << sqlbuf << std::endl;
             return;
         }
-        if(lstRes.size()>0){ //已上传    查到了
-           int fileid=stoi(lstRes.front());
-            //写入用户文件关系  由于触发器作用  文件引用计数自动+1
-             //插入用户文件关系
-            sprintf(sqlbuf,"insert into t_user_file ( u_id , f_id , f_dir , f_name , f_uploadtime ) values( %d , %d , '%s' , '%s' , '%s' );",rq->userid,fileid,rq->dir,rq->fileName,rq->time);
-            //cout<<sqlbuf<<endl;
-            res=m_sql->UpdataMysql(sqlbuf);
-            if(!res){
-                sqlLog<<"update fail"<<sqlbuf<<endl;
-            }
-            //写回复包  客户端收到之后  就更新列表
-            STRU_QUICK_UPLOAD_RS rs;
-            rs.result=1;
-            //
-            rs.timestamp=rq->timestamp;
-            rs.userid=rq->userid;
-            //发送
-            SendData(clientfd,(char*)&rs,sizeof(rs));
-            //返回
-            //cout<<"返回了么"<<endl;
+        if (!lstRes.empty()) { // 已上传
+            int fileid = std::stoi(lstRes.front());
+
+            // 插入用户文件关系，触发器会自动增加引用计数
+            sprintf(sqlbuf,
+                    "INSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime)"
+                    " VALUES(%d, %d, '%s', '%s', '%s');",
+                    rq->userid, fileid, rq->dir, rq->fileName, rq->time);
+            res = m_sql->UpdataMysql(sqlbuf);
+            if (!res) sqlLog << "update fail" << sqlbuf << std::endl;
+
+            // 构造秒传回复，使用 serverReqId 而非客户端 timestamp
+            STRU_QUICK_UPLOAD_RS qs;
+            qs.result = 1;
+            qs.timestamp = serverReqId;
+            qs.userid = rq->userid;
+            SendData(clientfd, reinterpret_cast<char*>(&qs), sizeof(qs));
             return;
         }
     }
-    cout<<"没返回"<<endl;
-    //不是秒传
-    FileInfo *info=new FileInfo;
-    char strpath[1000]="";
-    sprintf(strpath,"%s%d%s%s",_DEF_PATH,rq->userid,rq->dir,rq->md5);//_DEF_PATH+userid+dir+name_md5
-    info->absolutePath=strpath;
-    std::cout<<strpath<<endl;
-    info->dir=rq->dir;
-    //std::cout<<rq->dir<<endl;
-    info->md5=rq->md5;
-    info->name=rq->fileName;
-    info->size=rq->size;
-    info->time=rq->time;
-    info->type=rq->type;
-    //使用linux io open操作
-    info->filefd=open(strpath,O_CREAT|O_WRONLY|O_TRUNC,00777);
-    //文件信息创建  打开文件
-    if(info->filefd<0){
-        std::cout<<"file open fail"<<endl;
-        exit(0);
+
+    // 不是秒传，准备接收上传数据
+    FileInfo *info = new FileInfo;
+    char strpath[1000] = "";
+    sprintf(strpath, "%s%d%s%s", _DEF_PATH, rq->userid, rq->dir, rq->md5);
+
+    info->absolutePath = strpath;
+    info->dir = rq->dir;
+    info->md5 = rq->md5;
+    info->name = rq->fileName;
+    info->size = rq->size;
+    info->time = rq->time;
+    info->type = rq->type;
+
+    info->filefd = open(strpath, O_CREAT | O_WRONLY | O_TRUNC, 00777);
+    if (info->filefd < 0) {
+        std::cerr << "file open fail:"<< strpath << std::endl;
+        delete info;
+        return;
     }
-    //map存储文件信息
-    int64_t user_time=rq->userid*GetTenBillion()+rq->timestamp;
-    m_UidTimeToFileinfo.insert(user_time,info);
-    //数据库记录
-        //插入文件信息（引用计数0，状态0->上传结束后改为1）
-        char sqlbuf[1000]="";
-        sprintf(sqlbuf,"insert into t_file ( f_size , f_path , f_MD5 , f_count , f_state , f_type ) values ( %d , '%s' , '%s' ,0 , 0 , 'file');",rq->size,strpath,rq->md5);
-        bool res=m_sql->UpdataMysql(sqlbuf);
-        if(!res){
-            sqlLog<<"update fail"<<sqlbuf<<endl;
-        }
-        //查文件id
-        sprintf(sqlbuf,"select f_id from t_file where f_path='%s' and f_md5='%s';",strpath,rq->md5);
-        list<string>lstRes;
-        res=m_sql->SelectMysql(sqlbuf,1,lstRes);
-        if(!res){
-            sqlLog<<"select fail"<<sqlbuf<<endl;
-        }
-        if(lstRes.size()>0){
-            info->fid=stoi(lstRes.front());
-        }
-        lstRes.clear();
-        //插入用户文件关系
-        sprintf(sqlbuf,"insert into t_user_file ( u_id , f_id , f_dir , f_name , f_uploadtime ) values( %d , %d , '%s' , '%s' , '%s' );",rq->userid,info->fid,rq->dir,rq->fileName,rq->time);
-        //std::cout<<sqlbuf<<endl;
-        res=m_sql->UpdataMysql(sqlbuf);
-        if(!res){
-            sqlLog<<"update fail"<<sqlbuf<<endl;
-        }
-    //写回复包
+
+    // 使用服务器请求 ID 作为 map 键的一部分，避免冲突
+    int64_t mapKey = static_cast<int64_t>(rq->userid) * GetTenBillion() + serverReqId;
+    m_UidTimeToFileinfo.insert(mapKey, info);
+    char  sqlbuf[1000] = "";
+    // 数据库记录文件元信息
+    sprintf(sqlbuf,
+            "INSERT INTO t_file(f_size, f_path, f_MD5, f_count, f_state, f_type)"
+            " VALUES(%d, '%s', '%s', 0, 0, 'file');",
+            rq->size, strpath, rq->md5);
+    if (!m_sql->UpdataMysql(sqlbuf)) sqlLog << "insert fial" << sqlbuf << std::endl;
+
+    // 查找文件 ID
+    sprintf(sqlbuf,
+            "SELECT f_id FROM t_file WHERE f_path='%s' AND f_md5='%s';",
+            strpath, rq->md5);
+    std::list<std::string> lstRes2;
+    if (m_sql->SelectMysql(sqlbuf, 1, lstRes2) && !lstRes2.empty()) {
+        info->fid = std::stoi(lstRes2.front());
+    } else {
+        sqlLog << "select f_id fail" << sqlbuf << std::endl;
+    }
+
+    // 插入用户文件关系
+    sprintf(sqlbuf,
+            "INSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime)"
+            " VALUES(%d, %d, '%s', '%s', '%s');",
+            rq->userid, info->fid, rq->dir, rq->fileName, rq->time);
+    if (!m_sql->UpdataMysql(sqlbuf)) sqlLog << "insert user_file fail" << sqlbuf << std::endl;
+
+    // 发送上传完成回复，仍使用 serverReqId
     STRU_UPLOAD_FILE_RS rs;
-    rs.fileid=info->fid;
-    rs.result=1;
-    rs.timestamp=rq->timestamp;
-    rs.userid=rq->userid;
-
-    SendData(clientfd,(char*)&rs,sizeof(rs));
+    rs.fileid = info->fid;
+    rs.result = 1;
+    rs.timestamp = serverReqId;
+    rs.userid = rq->userid;
+    SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
 }
 void CLogic::FileContentRq(sock_fd clientfd ,char* szbuf,int nlen)
 {
@@ -532,63 +537,78 @@ void CLogic::FileContentRs(sock_fd clientfd, char *szbuf, int nlen){
 
     SendData(clientfd,(char*)&rq,sizeof(rq));
 }
+#include <filesystem>
 void CLogic::AddFolderRq(sock_fd clientfd ,char* szbuf,int nlen){
-    logicLog<<"clientfd:"<<"userId:"<< clientfd <<" "<< __func__ << endl;
+   // 拆包
+    STRU_ADD_FOLDER_RQ* rq = reinterpret_cast<STRU_ADD_FOLDER_RQ*>(szbuf);
 
-    //拆包
-    STRU_ADD_FOLDER_RQ*rq=(STRU_ADD_FOLDER_RQ*)szbuf;
-    // rq->dir;
-    // rq->fileName;
-    // rq->timestamp;
-    // rq->userid;
+    // 准备返回包
+    STRU_ADD_FOLDER_RS rs;
+    rs.result    = 0;               // 默认失败
+    rs.timestamp = GetNextRequestId();   
+    rs.userid    = rq->userid;
+    strcpy(rs.userAbsPath, rq->userAbsPath);
+    strcpy(rs.dir, rq->dir);
 
     //数据库写表，插入文件信息 
-    //f_size,f_path,f_count,f_MD5,f_state,f_type
-    char pathbuf[1000]="";
-    //拼接绝对路径
-    sprintf(pathbuf,"%s%d%s%s",_DEF_PATH,rq->userid,rq->dir,rq->fileName);
-    cout<<pathbuf<<endl;
-    char sqlbuf[1000]="";
-    sprintf(sqlbuf,"insert into t_file(f_size,f_path,f_count,f_MD5,f_state,f_type) values(0,'%s',0,'?',1,'folder');",pathbuf);
-    
-    bool res=m_sql->UpdataMysql(sqlbuf);
-    if(!res){
-        cout<<"updata fail: "<<sqlbuf<<endl;
+    // //f_size,f_path,f_count,f_MD5,f_state,f_type
+    // char pathbuf[1000]="";
+    // //拼接绝对路径
+    // sprintf(pathbuf,"%s%d%s%s",_DEF_PATH,rq->userid,rq->dir,rq->fileName);
+    //解决文件路径可能过长的问题
+   
+    // 1. 构建完整目录路径
+    namespace fs = std::filesystem;
+    fs::path basePath(_DEF_PATH);
+    basePath /= std::to_string(rq->userid);
+    basePath /= rq->dir;
+    basePath /= rq->fileName;
+    std::string fullPath = basePath.string();
+
+    // 2. 创建多级目录
+    std::error_code ec;
+    if (!fs::create_directories(basePath, ec)) {
+        // 如果已经存在也是成功，否则报错
+        if (ec) {
+            logicLog << "mkdir fail: " << ec.message() << " path=" << fullPath << endl;
+            SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
+            return;
+        }
+    }
+       // 3. 插入 t_file 表
+    char sqlbuf[1024] = {0};
+    sprintf(sqlbuf,
+        "INSERT INTO t_file(f_size,f_path,f_count,f_MD5,f_state,f_type) "
+        "VALUES(0,'%s',0,'?',1,'folder');",
+        fullPath.c_str());
+    if (!m_sql->UpdataMysql(sqlbuf)) {
+        logicLog << "t_file insert fail: " << sqlbuf << endl;
+        SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
         return;
     }
-    //查询id
-    sprintf(sqlbuf,"select f_id from t_file where f_path='%s';",pathbuf);
-    list<string>lstRes;
-    res=m_sql->SelectMysql(sqlbuf,1,lstRes);
-    if(!res){
-        cout<<"select fail: "<<sqlbuf<<endl;
+    // 4. 查询新插入的 f_id
+    sprintf(sqlbuf, "SELECT f_id FROM t_file WHERE f_path='%s';", fullPath.c_str());
+    std::list<std::string> lstRes;
+    if (!m_sql->SelectMysql(sqlbuf, 1, lstRes) || lstRes.empty()) {
+        logicLog << "t_file select f_id fail: " << sqlbuf << endl;
+        SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
         return;
     }
-    if(lstRes.size()==0)return;
-    int id=stoi(lstRes.front());
-    lstRes.pop_front();
-    //写入用户文件关系-隐藏 触发器引用计数+1
-    //u_id,f_id,f_dir,f_name,f_uploadtime ,
-    sprintf(sqlbuf,"insert into t_user_file(u_id,f_id,f_dir,f_name,f_uploadtime) values(%d,%d,'%s','%s','%s');"
-    ,rq->userid,id,rq->dir,rq->fileName,rq->time);
-    res=m_sql->UpdataMysql(sqlbuf);
-      //写回复
-    STRU_ADD_FOLDER_RS rs;
-    rs.result=1;
-    rs.timestamp=rq->timestamp;
-    rs.userid=rq->userid;
-    if(!res){
-        cout<<"updata fail: "<<sqlbuf<<endl;
-        rs.result=1;
-    }
-  
-    //创建目录，告诉客户端创建失败
-    if(mkdir(pathbuf,0777)==-1){
-        perror("mkdir fail");
+    int fid = std::stoi(lstRes.front());
+
+    // 5. 写入 t_user_file
+    sprintf(sqlbuf,
+        "INSERT INTO t_user_file(u_id,f_id,f_dir,f_name,f_uploadtime) "
+        "VALUES(%d,%d,'%s','%s','%s');",
+        rq->userid, fid, rq->dir, rq->fileName, rq->time);
+    if (!m_sql->UpdataMysql(sqlbuf)) {
+        logicLog << "t_user_file insert fail: " << sqlbuf << endl;
+        SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
         return;
     }
-    //发送
-    SendData(clientfd,(char*)&rs,sizeof(rs));
+    // 6. 全部成功
+    rs.result = 1;
+    SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
 }
 void CLogic::ShareFileRq(sock_fd clientfd, char *szbuf, int nlen)
 {
@@ -648,7 +668,7 @@ void CLogic::MyShareRq(sock_fd clientfd, char *szbuf, int nlen)
     }
     int count=lst.size();
     if((count/4)==0||(count%4!=0)){
-        cout<<"count is error"<<endl;
+        cout<<"查找分享列表失败，当前count非4的倍数："<<count<<endl;
         cout<<"sql: "<<sqlbuf<<endl;
         return;
     }

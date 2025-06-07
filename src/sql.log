@@ -1,0 +1,14 @@
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 2, '/Screenshots/', '屏幕截图 2025-02-21 160939.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 3, '/Screenshots/', '屏幕截图 2025-02-21 202119.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 4, '/Screenshots/', '屏幕截图 2025-02-23 104716.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 5, '/Screenshots/', '屏幕截图 2025-02-21 202136.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 6, '/Screenshots/', '屏幕截图 2025-03-11 142703.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 7, '/Screenshots/', '屏幕截图 2025-03-07 151708.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 8, '/Screenshots/', '屏幕截图 2025-04-03 221325.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 10, '/Screenshots/', '屏幕截图 2025-04-16 192932.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 9, '/Screenshots/', '屏幕截图 2025-04-27 150203.png', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 11, '/', '白底_证件照.jpg', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 12, '/', '微信图片_2025-06-05_093622_061.jpg', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 13, '/', '4946db29969e567241cef08a284c3dbf.jpg', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 14, '/', '4946db29969e567241cef08a284c3dbf.jpg', '');
+insert user_file failINSERT INTO t_user_file(u_id, f_id, f_dir, f_name, f_uploadtime) VALUES(4, 14, '/', '4946db29969e567241cef08a284c3dbf.jpg', '');
