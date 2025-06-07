@@ -202,7 +202,7 @@ struct STRU_UPLOAD_FILE_RS
 
     }
     PackType type;
-    int timestamp;//时间戳用于区分不同任务
+    int timestamp;//本质上是文件的唯一标识
     int userid;//用户id
     int fileid; //文件id
     int result; //结果
@@ -404,6 +404,7 @@ struct STRU_ADD_FOLDER_RQ
     char fileName[_MAX_PATH_SIZE];
     char dir[_MAX_PATH_SIZE];//路径
     char time[_MAX_SIZE]; //上传时间
+    char userAbsPath[_MAX_PATH_SIZE];
 };
 
 //新建文件夹回复
@@ -417,6 +418,8 @@ struct STRU_ADD_FOLDER_RS
     int timestamp;
     int userid;
     int result;
+    char userAbsPath[_MAX_PATH_SIZE];
+    char dir[_MAX_PATH_SIZE];//网盘路径
 };
 
 //////////////////////秒传（快传）/////////////////////

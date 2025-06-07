@@ -6,10 +6,10 @@
 #include "Transfer/FileWriter.h"
 #include "Transfer/NoOpWriter.h"
 #include  <atomic>
-std::atomic<int64_t> s_requestCounter;
-int64_t GetNextRequestId() {
-    return ++s_requestCounter;
-}
+// std::atomic<int64_t> s_requestCounter;
+// int64_t GetNextRequestId() {
+//     return ++s_requestCounter;
+// }
 FileTransferClient FileTran("127.0.0.1",9000);
 void CLogic::setNetPackMap()
 {
@@ -545,49 +545,44 @@ void CLogic::AddFolderRq(sock_fd clientfd ,char* szbuf,int nlen){
     // 准备返回包
     STRU_ADD_FOLDER_RS rs;
     rs.result    = 0;               // 默认失败
-    rs.timestamp = GetNextRequestId();   
+    rs.timestamp = rq->timestamp;   
     rs.userid    = rq->userid;
     strcpy(rs.userAbsPath, rq->userAbsPath);
     strcpy(rs.dir, rq->dir);
-
     //数据库写表，插入文件信息 
     // //f_size,f_path,f_count,f_MD5,f_state,f_type
-    // char pathbuf[1000]="";
-    // //拼接绝对路径
-    // sprintf(pathbuf,"%s%d%s%s",_DEF_PATH,rq->userid,rq->dir,rq->fileName);
+    
     //解决文件路径可能过长的问题
    
-    // 1. 构建完整目录路径
-    namespace fs = std::filesystem;
-    fs::path basePath(_DEF_PATH);
-    basePath /= std::to_string(rq->userid);
-    basePath /= rq->dir;
-    basePath /= rq->fileName;
-    std::string fullPath = basePath.string();
-
-    // 2. 创建多级目录
-    std::error_code ec;
-    if (!fs::create_directories(basePath, ec)) {
-        // 如果已经存在也是成功，否则报错
-        if (ec) {
-            logicLog << "mkdir fail: " << ec.message() << " path=" << fullPath << endl;
-            SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
-            return;
-        }
+    // 1. 构建完整目录路径:但是不熟悉这个函数拼接错误
+    // namespace fs = std::filesystem;
+    // fs::path basePath(_DEF_PATH);
+    // basePath /= std::to_string(rq->userid);
+    // basePath /= rq->dir;
+    // basePath /= rq->fileName;
+    // std::string fullPath = basePath.string();
+     char pathbuf[1000]="";
+    //拼接绝对路径
+    sprintf(pathbuf,"%s%d%s%s",_DEF_PATH,rq->userid,rq->dir,rq->fileName);
+    //2.创建目录，告诉客户端创建失败
+    if(mkdir(pathbuf,0777)==-1){
+        logicLog << "mkdir fail, " << " path=" << pathbuf << endl;
+        SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
+        return;
     }
        // 3. 插入 t_file 表
     char sqlbuf[1024] = {0};
     sprintf(sqlbuf,
         "INSERT INTO t_file(f_size,f_path,f_count,f_MD5,f_state,f_type) "
         "VALUES(0,'%s',0,'?',1,'folder');",
-        fullPath.c_str());
+        pathbuf);
     if (!m_sql->UpdataMysql(sqlbuf)) {
         logicLog << "t_file insert fail: " << sqlbuf << endl;
         SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
         return;
     }
     // 4. 查询新插入的 f_id
-    sprintf(sqlbuf, "SELECT f_id FROM t_file WHERE f_path='%s';", fullPath.c_str());
+    sprintf(sqlbuf, "SELECT f_id FROM t_file WHERE f_path='%s';", pathbuf);
     std::list<std::string> lstRes;
     if (!m_sql->SelectMysql(sqlbuf, 1, lstRes) || lstRes.empty()) {
         logicLog << "t_file select f_id fail: " << sqlbuf << endl;
