@@ -404,9 +404,7 @@ struct STRU_ADD_FOLDER_RQ
     char fileName[_MAX_PATH_SIZE];
     char dir[_MAX_PATH_SIZE];//路径
     char time[_MAX_SIZE]; //上传时间
-    char userAbsPath[_MAX_PATH_SIZE];
 };
-
 //新建文件夹回复
 struct STRU_ADD_FOLDER_RS
 {
@@ -418,8 +416,6 @@ struct STRU_ADD_FOLDER_RS
     int timestamp;
     int userid;
     int result;
-    char userAbsPath[_MAX_PATH_SIZE];
-    char dir[_MAX_PATH_SIZE];//网盘路径
 };
 
 //////////////////////秒传（快传）/////////////////////
