@@ -10,6 +10,18 @@
 // int64_t GetNextRequestId() {
 //     return ++s_requestCounter;
 // }
+#include <sys/stat.h>
+
+bool isDirectoryExists(const std::string& path) {
+    struct stat info;
+    if (stat(path.c_str(), &info) != 0)
+        return false;  // 无法访问
+    else if (info.st_mode & S_IFDIR)
+        return true;   // 是目录
+    else
+        return false;  // 存在但不是目录
+}
+
 FileTransferClient FileTran("127.0.0.1",9000);
 void CLogic::setNetPackMap()
 {
@@ -547,8 +559,6 @@ void CLogic::AddFolderRq(sock_fd clientfd ,char* szbuf,int nlen){
     rs.result    = 0;               // 默认失败
     rs.timestamp = rq->timestamp;   
     rs.userid    = rq->userid;
-    strcpy(rs.userAbsPath, rq->userAbsPath);
-    strcpy(rs.dir, rq->dir);
     //数据库写表，插入文件信息 
     // //f_size,f_path,f_count,f_MD5,f_state,f_type
     
@@ -564,11 +574,14 @@ void CLogic::AddFolderRq(sock_fd clientfd ,char* szbuf,int nlen){
      char pathbuf[1000]="";
     //拼接绝对路径
     sprintf(pathbuf,"%s%d%s%s",_DEF_PATH,rq->userid,rq->dir,rq->fileName);
-    //2.创建目录，告诉客户端创建失败
-    if(mkdir(pathbuf,0777)==-1){
-        logicLog << "mkdir fail, " << " path=" << pathbuf << endl;
-        SendData(clientfd, reinterpret_cast<char*>(&rs), sizeof(rs));
-        return;
+    //查看目录是否已经创建
+    if (!isDirectoryExists(pathbuf)){
+        // 2.创建目录，告诉客户端创建失败
+        if (mkdir(pathbuf, 0777) == -1){
+            logicLog << "mkdir fail, " << " path=" << pathbuf << endl;
+            SendData(clientfd, reinterpret_cast<char *>(&rs), sizeof(rs));
+            return;
+        }
     }
        // 3. 插入 t_file 表
     char sqlbuf[1024] = {0};
@@ -1078,20 +1091,17 @@ void CLogic::DeleteFile(int userid,int fileid,string dir,string path){
         cout<<"delete fail: "<<sqlbuf<<endl;
         return;
     }
-    
-    //再次查询id看能不能找到数据库中有这个记录，如果不能，删除这个文件
-    sprintf(sqlbuf,"select f_id from t_file where f_id=%d ;",fileid);
-    list<string>lst;
-    res=m_sql->SelectMysql(sqlbuf,1,lst);
-    if(!res){
-        cout<<"select fail: "<<sqlbuf<<endl;
-        return;
-    }
-    //if(lst.size()==0){
-        cout<<path<<endl;
-        unlink(path.c_str());//文件io，删除文件
-    //}
+     // 看看还有没有其它用户在用这个文件
+    sprintf(sqlbuf, "select f_id from t_user_file where f_id=%d;", fileid);
+    list<string> lst;
+    m_sql->SelectMysql(sqlbuf, 1, lst);
 
+    if (lst.empty()) {
+        // 真没人引用了，再删文件记录和磁盘文件
+        sprintf(sqlbuf, "delete from t_file where f_id=%d;", fileid);
+        m_sql->UpdataMysql(sqlbuf);
+        unlink(path.c_str());
+    }
 }
 
 void CLogic::DeleteFolder(int userid,int fileid,string dir,string name){
@@ -1109,7 +1119,7 @@ void CLogic::DeleteFolder(int userid,int fileid,string dir,string name){
 
     //查表，根据新路径查表，得到列表 f_id,f_type,name,path
     //char sqlbuf[1000]="";
-    sprintf(sqlbuf,"select f_type,f_id,f_name,f_path from user_file_info where u_id=%d and f_dir='%s';",userid,dir.c_str());
+    sprintf(sqlbuf,"select f_type,f_id,f_name,f_path from user_file_info where u_id=%d and f_dir='%s';",userid,newdir.c_str());
             //newdir.c_str());
     list<string>lst;
     res=m_sql->SelectMysql(sqlbuf,4,lst);
